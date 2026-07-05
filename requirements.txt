@@ -1,0 +1,13 @@
+# Extraction
+groq
+pypdf
+python-dotenv
+
+# Knowledge base
+pyhscodes
+
+# Web UI
+fastapi
+uvicorn
+jinja2
+python-multipart

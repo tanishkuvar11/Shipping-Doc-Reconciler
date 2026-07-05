@@ -2,9 +2,9 @@ import json
 import re
 from pathlib import Path
 
-from validation import container_check_digit
+from reference_data import field_note
+from extract import TARGET_FIELDS
 
-# The 4 possible verdicts for a field
 AGREE    = "AGREE"
 MISMATCH = "MISMATCH"
 SINGLE   = "SINGLE"
@@ -13,12 +13,10 @@ MISSING  = "MISSING"
 def normalize(field_name: str, value: str) -> str:
 
     if field_name in ("gross_weight", "vgm_kg"):
-        # keep only the numeric part: drop commas and any unit suffix like "KG"
         number=value.replace(",","").split()[0]
         return str(float(number))
 
     if field_name == "package_count":
-        # compare on the integer count only, ignoring words like "CARTONS"
         digits=re.findall(r"\d+", value)
         return digits[0] if digits else value.strip().upper()
 
@@ -33,11 +31,13 @@ def normalize(field_name: str, value: str) -> str:
 def reconcile(docs: dict) -> list:
     results=[]
 
-    all_fields=set()
+    seen=set()
     for fields in docs.values():
-        all_fields.update(fields.keys())
+        seen.update(fields.keys())
+    ordered=[f for f in TARGET_FIELDS if f in seen]
+    ordered+=sorted(seen-set(ordered))
 
-    for field in all_fields:
+    for field in ordered:
         values={}
         for doc_name, fields in docs.items():
             if fields.get(field) is not None:
@@ -51,38 +51,55 @@ def reconcile(docs: dict) -> list:
         else:
             status=MISMATCH
 
+        notes={}
+        for doc, v in values.items():
+            note_status, note_text = field_note(field, v)
+            if note_status is not None:
+                notes[doc]=(note_status, note_text)
+
         result={"field":field, "status":status, "values":values}
-        if field=="container_no":
-            # ISO 6346 check digit tells us which reads are structurally valid,
-            # separating a real document conflict from a bad OCR/extraction.
-            result["validation"]={doc: container_check_digit(v)
-                                  for doc, v in values.items()}
+        if notes:
+            result["notes"]=notes
+
+            result["valid"]=all(ok for ok, _ in notes.values())
         results.append(result)
 
     return results
 
 
-def load_docs(path: str = "samples/extracted.json") -> dict:
+def load_docs(path: str = "samples/extracted_live.json") -> dict:
+    """Load a saved extraction (real AI output from a previous run)."""
     return json.loads(Path(path).read_text())
+
+
+def _note_suffix(note) -> str:
+    if not note:
+        return ""
+    ok, text = note
+    tag = "OK" if ok else "!!"
+    return f"  [{tag} {text}]"
 
 
 def print_report(results: list) -> None:
     icon = {AGREE: "OK ", MISMATCH: "XX ", SINGLE: " . ", MISSING: " ? "}
     print("\n================ SHIPMENT RECONCILIATION ================")
     for r in results:
-        print(f"[{icon.get(r['status'], '   ')}] {r['field']:20} {r['status']}")
-        validation = r.get("validation")
-        if validation:
+        validity = ""
+        if "valid" in r:
+            validity = "  [VALID]" if r["valid"] else "  [INVALID]"
+        print(f"[{icon.get(r['status'], '   ')}] {r['field']:20} {r['status']}{validity}")
+        notes = r.get("notes", {})
+        if r["status"] == MISMATCH:
             for doc, val in r["values"].items():
-                ok, reason = validation[doc]
-                tag = "valid" if ok else "INVALID"
-                print(f"        - {doc:22}: {val}  [check digit {tag}]")
-        elif r["status"] in (MISMATCH,):
-            for doc, val in r["values"].items():
-                print(f"        - {doc:22}: {val}")
+                print(f"        - {doc:22}: {val}{_note_suffix(notes.get(doc))}")
+        elif notes:
+            doc, val = next(iter(r["values"].items()))
+            print(f"        - {val}{_note_suffix(notes.get(doc))}")
     mism = sum(1 for r in results if r["status"] == MISMATCH)
+    invalid = sum(1 for r in results if r.get("valid") is False)
     print("--------------------------------------------------------")
-    print(f"{mism} mismatch(es) found across {len(results)} fields.")
+    print(f"{mism} mismatch(es) and {invalid} validation error(s) "
+          f"across {len(results)} fields.")
     print("========================================================\n")
 
 if __name__ == "__main__":

@@ -11,14 +11,28 @@ DOCUMENTS = {
 }
 
 
-def main():
+def reconcile_paths(documents: dict, save: bool = True, replay: bool = False):
+    """Extract fields from a {label: pdf_path} map and reconcile.
+    Returns (docs, results). Shared by the CLI, the sample run, and uploads.
+    `replay=True` forces the cached real extraction (sample button)."""
     docs = {}
-    for doc_name, pdf_path in DOCUMENTS.items():
-        docs[doc_name] = extract_fields(pdf_path, doc_name)
+    for doc_name, pdf_path in documents.items():
+        docs[doc_name] = extract_fields(pdf_path, doc_name, replay=replay)
 
-    Path("samples/extracted_live.json").write_text(json.dumps(docs, indent=2))
+    if save and not replay:
+        Path("samples/extracted_live.json").write_text(json.dumps(docs, indent=2))
 
     results = reconcile(docs)
+    return docs, results
+
+
+def run():
+    """Reconcile the three bundled sample documents."""
+    return reconcile_paths(DOCUMENTS)
+
+
+def main():
+    _, results = run()
     print_report(results)
 
 

@@ -4,10 +4,9 @@ import os
 import json
 from pathlib import Path
 
-# The exact fields we want out of every document.
 TARGET_FIELDS = [
     "bl_number", "container_no", "seal_no", "consignee",
-    "vessel_voyage", "port_of_discharge", "gross_weight",
+    "vessel_name", "voyage_no", "port_of_discharge", "gross_weight",
     "hs_code", "package_count", "vgm_kg",
 ]
 
@@ -35,8 +34,12 @@ Rules:
 - Keep numbers, dates, and codes (like HS codes) exactly as written.
 - For consignee, return the FULL consignee block on one line: the company / legal name followed by its complete postal address (street, unit, city, state, postal code, country). Do not shorten or drop the address - address differences between documents are meaningful and must be preserved. Exclude only phone, email, and contact person name.
 - For package_count, return ONLY the integer number of packages as digits (e.g. "430"). Do not include unit words like "CARTONS" or "PALLETS".
-- For container_no and seal_no, return the code exactly as printed, with no surrounding words.
-- For vessel_voyage, return ONLY the vessel name followed by the voyage number, separated by a single space. Exclude terminal names, call signs, VCN, or other codes.
+- container_no is a shipping CONTAINER number, always formatted as EXACTLY 4 uppercase letters followed by 7 digits (ISO 6346), e.g. "MEDU7745120". Extract it from EVERY document that shows a container number (Bill of Lading, Shipping Instruction, and VGM Certificate all carry one). Return the code only, with no surrounding words.
+- bl_number is the Bill of Lading / document number, usually labelled "B/L No.", "Bill of Lading No.", "Booking No.", or "Document No." (e.g. "MEDUSG512884170"). It is NOT a container number: a code in the 4-letters-then-7-digits container format must go in container_no, NEVER in bl_number. If the document does not clearly show its OWN Bill of Lading number, set bl_number to null - do not borrow the container number to fill it. Shipping Instructions and VGM Certificates usually have no Bill of Lading number.
+- For seal_no, return the seal code exactly as printed, with no surrounding words.
+- vessel_name and voyage_no are TWO SEPARATE fields. Never combine them.
+- vessel_name is the ship's name only (e.g. "MSC POH LIN"). Exclude any voyage number, call sign, or IMO number.
+- voyage_no is the voyage number only: a short alphanumeric sailing code, usually labelled "Voyage No.", "Voy", or similar (e.g. "FE842A"). Exclude the vessel name. If the document shows only a VCN (Vessel Call Number) such as "SIN2018FE842A" instead of a plain voyage number, the voyage number is the recognisable voyage code embedded in it (here "FE842A") - extract ONLY that code, dropping the port/year prefix (e.g. "SIN2018").
 
 Document text:
 \"\"\"
@@ -69,19 +72,33 @@ def parse_json_reply(raw_reply: str) -> dict:
     return json.loads(cleaned)
 
 
-def extract_fields(pdf_path: str, doc_name: str) -> dict:
-    if os.environ.get("GROQ_API_KEY"):
+CACHE_PATH = "samples/extracted_live.json"
+
+
+def is_live() -> bool:
+    if os.environ.get("BL_RECONCILER_REPLAY"):
+        return False
+    return bool(os.environ.get("GROQ_API_KEY"))
+
+
+def extract_fields(pdf_path: str, doc_name: str, replay: bool = False) -> dict:
+
+    if not replay and is_live():
         text = read_pdf_text(pdf_path)
-        prompt = build_prompt(text)          # your code
-        raw = call_llm(prompt)               # your code
-        return parse_json_reply(raw)         # your code
-    else:
-        print(f"[mock mode] no API key set - loading mocked fields for {doc_name!r}")
-        all_mock = json.loads(Path("samples/extracted.json").read_text())
-        return all_mock.get(doc_name, {})
+        prompt = build_prompt(text)
+        raw = call_llm(prompt)
+        return parse_json_reply(raw)
+
+    cache = Path(CACHE_PATH)
+    if not cache.exists():
+        raise RuntimeError(
+            f"No cached extraction at {CACHE_PATH}. Run once with GROQ_API_KEY set "
+            "to produce a real extraction before using replay mode."
+        )
+    print(f"[replay] reusing last real extraction for {doc_name!r}")
+    return json.loads(cache.read_text()).get(doc_name, {})
 
 
 if __name__ == "__main__":
-    # Quick test. With no API key this prints the mocked B/L fields.
     fields = extract_fields("samples/Sample_Bill_of_Lading.pdf", "Bill of Lading")
     print(json.dumps(fields, indent=2))

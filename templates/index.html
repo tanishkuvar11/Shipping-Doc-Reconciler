@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>B/L Reconciler</title>
+  <style>
+    :root {
+      --bg: #0f1720; --card: #17212b; --line: #24313d;
+      --text: #e6edf3; --muted: #8b98a5;
+      --ok: #2ea043; --bad: #e5534b; --single: #8b98a5; --note: #388bfd;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font: 15px/1.5 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    }
+    .wrap { max-width: 1000px; margin: 0 auto; padding: 32px 20px 64px; }
+    header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+    h1 { font-size: 26px; margin: 0; }
+    h1 .box { font-size: 22px; }
+    .mode { font-size: 12px; padding: 3px 9px; border-radius: 999px;
+            background: #1f2b38; color: var(--muted); border: 1px solid var(--line); }
+    .summary { margin: 6px 0 28px; color: var(--muted); }
+    .summary b { color: var(--text); }
+    .summary .flag { color: var(--bad); }
+
+    h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .08em;
+         color: var(--muted); margin: 32px 0 12px; }
+
+    /* Reconciliation rows */
+    .row { background: var(--card); border: 1px solid var(--line);
+           border-radius: 10px; padding: 14px 16px; margin-bottom: 10px; }
+    .row.mismatch { border-color: #4c2b2b; }
+    .row-head { display: flex; align-items: center; gap: 10px; }
+    .badge { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 6px;
+             letter-spacing: .04em; }
+    .badge.AGREE   { background: rgba(46,160,67,.15);  color: var(--ok); }
+    .badge.MISMATCH{ background: rgba(229,83,75,.15);   color: var(--bad); }
+    .badge.SINGLE  { background: rgba(139,152,165,.15); color: var(--single); }
+    .badge.VALID   { background: rgba(46,160,67,.15);  color: var(--ok); }
+    .badge.INVALID { background: rgba(229,83,75,.15);  color: var(--bad); }
+    .axis { color: #55606b; font-size: 11px; margin: 0 2px; }
+    .field-name { font-weight: 600; }
+    .field-name code { color: var(--text); }
+
+    .vals { margin: 10px 0 0; padding: 0; list-style: none; }
+    .vals li { padding: 6px 0; border-top: 1px dashed var(--line); }
+    .vals li:first-child { border-top: none; }
+    .doc-label { color: var(--muted); font-size: 12px; display: inline-block;
+                 min-width: 170px; }
+    .val { color: var(--text); }
+    .single-val { margin-top: 8px; }
+    .note { display: block; margin-top: 4px; font-size: 12.5px; }
+    .note .n-ok  { color: var(--ok); }
+    .note .n-bad { color: var(--bad); }
+    .note .n-ico { font-weight: 700; margin-right: 5px; }
+
+    /* Document cards */
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr));
+             gap: 14px; }
+    .card { background: var(--card); border: 1px solid var(--line);
+            border-radius: 10px; padding: 16px; }
+    .card h3 { margin: 0 0 10px; font-size: 15px; }
+    .card dl { margin: 0; display: grid; grid-template-columns: auto 1fr;
+               gap: 4px 12px; font-size: 13px; }
+    .card dt { color: var(--muted); }
+    .card dd { margin: 0; word-break: break-word; }
+    .card .missing { color: #55606b; font-style: italic; }
+    footer { margin-top: 40px; color: #55606b; font-size: 12px; }
+
+    /* Upload form */
+    .upload { background: var(--card); border: 1px solid var(--line);
+              border-radius: 12px; padding: 22px; margin: 8px 0 24px; }
+    .upload p.hint { margin: 0 0 16px; color: var(--muted); }
+    .slot { display: grid; grid-template-columns: 180px 1fr; align-items: center;
+            gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+    .slot:first-of-type { border-top: none; }
+    .slot label { color: var(--text); font-weight: 600; font-size: 14px; }
+    .slot input[type=file] { color: var(--muted); font-size: 13px; }
+    .slot input[type=file]::file-selector-button {
+        background: #1f2b38; color: var(--text); border: 1px solid var(--line);
+        border-radius: 6px; padding: 6px 12px; margin-right: 10px; cursor: pointer; }
+    .actions { margin-top: 18px; display: flex; gap: 12px; align-items: center;
+               flex-wrap: wrap; }
+    .btn { display: inline-block; border: none; border-radius: 8px; padding: 10px 18px;
+           font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none; }
+    .btn-primary { background: var(--note); color: #fff; }
+    .btn-primary:hover { background: #4c9bff; }
+    .btn-primary:disabled { background: #23303d; color: #55606b; cursor: not-allowed; }
+    .btn-ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+    .btn-ghost:hover { color: var(--text); }
+    .pdf-only { color: #55606b; font-size: 12px; }
+
+    /* Error banner */
+    .banner { background: rgba(229,83,75,.12); border: 1px solid #4c2b2b;
+              color: var(--text); border-radius: 10px; padding: 14px 16px;
+              margin: 8px 0 24px; }
+    .banner .b-ico { color: var(--bad); font-weight: 700; margin-right: 8px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span class="box">📦</span> B/L Reconciler</h1>
+    <span class="mode">{{ mode }} mode</span>
+  </header>
+  {% if error %}
+  <div class="banner"><span class="b-ico">✗</span>{{ error }}</div>
+  {% endif %}
+
+  <form class="upload" action="/reconcile" method="post" enctype="multipart/form-data" id="upload-form">
+    <p class="hint">Upload a PDF for each document you have (any one or more), then reconcile.
+      <span class="pdf-only">PDF only.</span></p>
+    {% for slot in slots %}
+    <div class="slot">
+      <label>{{ slot }}</label>
+      <input type="file" name="{{ 'bl' if loop.index0 == 0 else 'si' if loop.index0 == 1 else 'vgm' }}" accept="application/pdf,.pdf" class="file-slot">
+    </div>
+    {% endfor %}
+    <div class="actions">
+      <button type="submit" class="btn btn-primary" id="reconcile-btn" disabled>Reconcile uploads</button>
+      <a href="/?sample=1" class="btn btn-ghost">Use sample documents</a>
+    </div>
+  </form>
+  <script>
+    (function () {
+      var form = document.getElementById('upload-form');
+      var btn = document.getElementById('reconcile-btn');
+      var inputs = form.querySelectorAll('.file-slot');
+      function sync() {
+        var any = Array.prototype.some.call(inputs, function (i) { return i.files.length > 0; });
+        btn.disabled = !any;
+      }
+      inputs.forEach(function (i) { i.addEventListener('change', sync); });
+      sync();
+    })();
+  </script>
+
+  {% if has_results %}
+  <p class="summary">
+    {% if mismatches %}<span class="flag">⚠ <b>{{ mismatches }}</b> mismatch(es)</span>{% else %}<b>No mismatches</b>{% endif %}
+    &nbsp;·&nbsp;
+    {% if errors %}<span class="flag">✗ <b>{{ errors }}</b> validation error(s)</span>{% else %}<b>no validation errors</b>{% endif %}
+    across <b>{{ total }}</b> fields, from {{ doc_names|length }} documents.
+  </p>
+
+  <h2>Reconciliation</h2>
+  {% for r in results %}
+  <div class="row {{ 'mismatch' if r.status == 'MISMATCH' or ('valid' in r and not r.valid) else '' }}">
+    <div class="row-head">
+      <span class="badge {{ r.status }}">{{ r.status }}</span>
+      {% if 'valid' in r %}
+      <span class="axis">·</span>
+      <span class="badge {{ 'VALID' if r.valid else 'INVALID' }}">{{ 'VALID' if r.valid else 'INVALID' }}</span>
+      {% endif %}
+      <span class="field-name"><code>{{ r.field }}</code></span>
+    </div>
+    {% set notes = r.notes if r.notes else {} %}
+    {% if r.status == 'MISMATCH' %}
+      <ul class="vals">
+        {% for doc, val in r['values'].items() %}
+        <li>
+          <span class="doc-label">{{ doc }}</span>
+          <span class="val">{{ val }}</span>
+          {% if notes.get(doc) %}
+            {% set note = notes.get(doc) %}
+            <span class="note">
+              <span class="{{ 'n-ok' if note[0] else 'n-bad' }}">
+                <span class="n-ico">{{ '✓' if note[0] else '✗' }}</span>{{ note[1] }}
+              </span>
+            </span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      {% set doc = (r['values'].keys()|list)[0] %}
+      {% set val = r['values'][doc] %}
+      <div class="single-val"><span class="val">{{ val }}</span></div>
+      {% if notes.get(doc) %}
+        {% set note = notes.get(doc) %}
+        <span class="note">
+          <span class="{{ 'n-ok' if note[0] else 'n-bad' }}">
+            <span class="n-ico">{{ '✓' if note[0] else '✗' }}</span>{{ note[1] }}
+          </span>
+        </span>
+      {% endif %}
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <h2>Extracted documents</h2>
+  <div class="cards">
+    {% for name in doc_names %}
+    <div class="card">
+      <h3>{{ name }}</h3>
+      <dl>
+        {% for f in fields %}
+          {% if docs[name].get(f) is not none %}
+          <dt>{{ f }}</dt><dd>{{ docs[name][f] }}</dd>
+          {% endif %}
+        {% endfor %}
+      </dl>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <footer>
+    Every field is AI-extracted from the PDFs; LLM output varies run to run. Sample mode re-uses the last real extraction.
+  </footer>
+</div>
+</body>
+</html>
