@@ -1,4 +1,4 @@
-# 📦 B/L Reconciler
+# 📦 Shipping Docs Reconciler
 
 > Cross-check shipping documents automatically. Extract the key fields from each PDF, compare them side by side, and flag the discrepancies that matter.
 
@@ -15,7 +15,7 @@
 
 A shipment is described by several documents: a **Bill of Lading**, a **Shipping Instruction**, and a **VGM Certificate** - that *should* all agree on the container number, weight, consignee, vessel, and so on. In practice they don't, and catching the mismatches by eye is slow and error-prone.
 
-**B/L Reconciler** reads all three PDFs, pulls out the same set of fields from each, and produces a single reconciliation report that tells you - field by field - whether the documents **AGREE**, **MISMATCH**, or only appear in one document (**SINGLE**). Container numbers are additionally validated against the **ISO 6346** check-digit standard, so a bad read can be told apart from a genuine document conflict.
+**Shipping Docs Reconciler** reads all three PDFs, pulls out the same set of fields from each, and produces a single reconciliation report that tells you - field by field - whether the documents **AGREE**, **MISMATCH**, or only appear in one document (**SINGLE**). Container numbers are additionally validated against the **ISO 6346** check-digit standard, so a bad read can be told apart from a genuine document conflict.
 
 ## How it works
 
